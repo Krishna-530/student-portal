@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Portal - Academic Gateway</title>
+
+
+    <!-- External CSS/Fonts -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Flask static CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <!-- ================= Login Page ================= -->
+    <div id="loginPage" class="page active">
+        <div class="login-container">
+            <div class="login-header">
+                <i class="fas fa-graduation-cap"></i>
+                <h1>Student Portal</h1>
+                <p>Welcome to your academic gateway</p>
+            </div>
+            <div class="login-form">
+                <h2>Login</h2>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="userType">Login as:</label>
+                        <select id="userType" name="userType" required>
+                            <option value="">Select User Type</option>
+                            <option value="student">Student</option>
+                            <option value="admin">Admin</option>
+                            <option value="subadmin">Sub-Admin</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="login-btn">
+                        <i class="fas fa-sign-in-alt"></i> Login
+                    </button>
+                </form>
+
+                <!-- Demo Credentials -->
+                <div class="demo-credentials">
+                    <h4><i class="fas fa-info-circle"></i> Demo Credentials</h4>
+                    <p><strong>Admin:</strong> admin / admin123</p>
+                    <p><strong>Student:</strong> student / student123</p>
+                    <p><strong>Sub-Admin:</strong> subadmin / sub123</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= Dashboard Layout ================= -->
+    <div id="dashboardPage" class="page">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-left">
+                <button class="sidebar-toggle" onclick="toggleSidebar()">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="logo">
+                    <i class="fas fa-graduation-cap"></i>
+                    <h1 id="portalTitle">Student Portal</h1>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <div class="timer-container" title="Session Timeout">
+                        <svg class="timer-svg" viewBox="0 0 36 36">
+                            <path class="timer-bg"
+                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path class="timer-progress" id="timerProgress" stroke-dasharray="100, 100"
+                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <span id="timerText" class="timer-text">10:00</span>
+                    </div>
+                    <i class="fas fa-user"></i>
+                    <span>Welcome, <span id="currentUserName">User</span></span>
+                </div>
+                <div class="notif-bell-wrap" id="notifBellWrap">
+                    <button class="notif-bell-btn" id="notifBellBtn" onclick="toggleNotifPanel()" title="Announcements">
+                        <i class="fas fa-bell"></i>
+                        <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+                    </button>
+                    <div class="notif-panel" id="notifPanel" style="display:none;">
+                        <div class="notif-panel-header">
+                            <span><i class="fas fa-bell"></i> Recent Announcements</span>
+                            <button onclick="toggleNotifPanel(); showSection('announcements-student');" class="notif-view-all">View All</button>
+                        </div>
+                        <div class="notif-panel-body" id="notifPanelBody">
+                            <p style="padding:1rem; color:#64748b; text-align:center;">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+                <button class="logout-btn" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i> <span>Logout</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="dashboard-layout">
+            <!-- Sidebar -->
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-content">
+                    <nav class="sidebar-nav" id="sidebarNav">
+                        <!-- Populated dynamically by script.js -->
+                    </nav>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <div class="content-wrapper">
+                    <div class="content-header">
+                        <h2 id="contentTitle">Dashboard</h2>
+                        <div class="content-actions" id="contentActions">
+                            <!-- Action buttons added dynaminc-->
+
+                        </div>
+                    </div>
+                    <div class="content-body" id="contentBody">
+                        <!-- Content is dynamically injected -->
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- ================= Modal for Forms ================= -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Modal Title</h3>
+                <button class="modal-close" onclick="closeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Dynamic modal content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= File Upload Modal ================= -->
+    <div id="fileModal" class="modal">
+        <div class="modal-content file-modal">
+            <div class="modal-header">
+                <h3 id="fileModalTitle">Upload File</h3>
+                <button class="modal-close" onclick="closeFileModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="file-upload-area" id="fileUploadArea">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Drop files here or click to browse</p>
+                    <input type="file" id="fileInput" multiple>
+                </div>
+                <div class="uploaded-files" id="uploadedFiles"></div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeFileModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="handleFileUpload()">Upload</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= Scripts ================= -->
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+
+</html>

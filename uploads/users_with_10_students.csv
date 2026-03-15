@@ -1,0 +1,13 @@
+username,password,name,email,user_type,roll_number,course,semester,phone,created_at,updated_at
+student1,password123,John Doe,john@example.com,student,12345,B.Tech,3,,,
+student2,password123,Jane Smith,jane@example.com,student,12346,B.Tech,3,,,
+rahul_kumar,rahul_kumar123,Rahul Kumar,rahul_kumar@example.com,student,52314100,BSc Physics,1,9876500000,2025-09-17 11:00:00,2025-09-17 11:00:00
+priya_sharma,priya_sharma123,Priya Sharma,priya_sharma@example.com,student,52314101,BA English,2,9876500001,2025-09-17 11:01:00,2025-09-17 11:01:00
+arjun_mehta,arjun_mehta123,Arjun Mehta,arjun_mehta@example.com,student,52314102,BTech IT,3,9876500002,2025-09-17 11:02:00,2025-09-17 11:02:00
+ananya_verma,ananya_verma123,Ananya Verma,ananya_verma@example.com,student,52314103,BSc Mathematics,4,9876500003,2025-09-17 11:03:00,2025-09-17 11:03:00
+vikram_singh,vikram_singh123,Vikram Singh,vikram_singh@example.com,student,52314104,BCom,5,9876500004,2025-09-17 11:04:00,2025-09-17 11:04:00
+sneha_reddy,sneha_reddy123,Sneha Reddy,sneha_reddy@example.com,student,52314105,BBA,6,9876500005,2025-09-17 11:05:00,2025-09-17 11:05:00
+rohit_gupta,rohit_gupta123,Rohit Gupta,rohit_gupta@example.com,student,52314106,BSc Chemistry,1,9876500006,2025-09-17 11:06:00,2025-09-17 11:06:00
+kavya_iyer,kavya_iyer123,Kavya Iyer,kavya_iyer@example.com,student,52314107,BA History,2,9876500007,2025-09-17 11:07:00,2025-09-17 11:07:00
+aman_joshi,aman_joshi123,Aman Joshi,aman_joshi@example.com,student,52314108,BCA,3,9876500008,2025-09-17 11:08:00,2025-09-17 11:08:00
+meera_nair,meera_nair123,Meera Nair,meera_nair@example.com,student,52314109,BSc Computer Science,4,9876500009,2025-09-17 11:09:00,2025-09-17 11:09:00
