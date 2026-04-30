@@ -798,6 +798,7 @@ function populateSidebar() {
         menuItems = [
             { id: 'dashboard', icon: 'fas fa-home', label: 'Dashboard' },
             { id: 'profile', icon: 'fas fa-user-circle', label: 'My Profile' },
+            { id: 'timetable-student', icon: 'fas fa-table', label: 'Time Table' },
             { id: 'attendance-student', icon: 'fas fa-calendar-check', label: 'My Attendance' },
             { id: 'exam-student', icon: 'fas fa-clipboard-list', label: 'Exams' },
             { id: 'marks-student', icon: 'fas fa-chart-line', label: 'My Marks & Results' },
@@ -811,6 +812,8 @@ function populateSidebar() {
             { id: 'profile', icon: 'fas fa-user-circle', label: 'My Profile' },
             { id: 'user-management', icon: 'fas fa-users-cog', label: 'User Management' },
             { id: 'courses-admin', icon: 'fas fa-book', label: 'Courses' },
+            { id: 'sessions-admin', icon: 'fas fa-calendar-alt', label: 'Academic Sessions' },
+            { id: 'timetable-admin', icon: 'fas fa-table', label: 'Time Table' },
             { id: 'assignments-admin', icon: 'fas fa-tasks', label: 'Assignments' },
             { id: 'exam-admin', icon: 'fas fa-clipboard-list', label: 'Exams' },
             { id: 'materials-admin', icon: 'fas fa-folder-open', label: 'Materials' },
@@ -823,6 +826,7 @@ function populateSidebar() {
         menuItems = [
             { id: 'dashboard', icon: 'fas fa-home', label: 'Dashboard' },
             { id: 'profile', icon: 'fas fa-user-circle', label: 'My Profile' },
+            { id: 'timetable-admin', icon: 'fas fa-table', label: 'Time Table' },
             { id: 'assignments-admin', icon: 'fas fa-tasks', label: 'Assignments' },
             { id: 'exam-admin', icon: 'fas fa-clipboard-list', label: 'Exams' },
             { id: 'materials-admin', icon: 'fas fa-folder-open', label: 'Materials' },
@@ -875,6 +879,13 @@ function getSectionInfo(sectionId) {
     const sectionMap = {
         'dashboard': { title: 'Dashboard', actions: '' },
         'profile': { title: 'My Profile', actions: '' },
+        'timetable-student': { title: 'Time Table', actions: '' },
+        'timetable-admin': {
+            title: 'Time Table Management',
+            actions: `
+                <button class="btn btn-primary" onclick="showAddTimetableEntryModal()"><i class="fas fa-plus"></i> Add Slot</button>
+            `
+        },
         'user-management': {
             title: 'User Management',
             actions: `
@@ -922,6 +933,10 @@ function getSectionInfo(sectionId) {
             title: 'Courses Management',
             actions: `<button class="btn btn-primary" onclick="showAddCourseModal()"><i class="fas fa-plus"></i> Add Course</button>`
         },
+        'sessions-admin': {
+            title: 'Academic Sessions Management',
+            actions: `<button class="btn btn-primary" onclick="showAddSessionModal()"><i class="fas fa-plus"></i> Add Session</button>`
+        },
         // Student sections
         'attendance-student': { title: 'My Attendance', actions: '' },
         'exam-student': { title: 'Exams', actions: '' },
@@ -941,7 +956,7 @@ async function showSection(sectionId) {
     const contentActions = document.getElementById('contentActions');
     const contentBody = document.getElementById('contentBody');
 
-    if (window.innerWidth <= 1024) toggleSidebar();
+    if (window.innerWidth <= 1024 && isSidebarOpen) toggleSidebar();
 
     const sectionInfo = getSectionInfo(sectionId);
     contentTitle.textContent = sectionInfo.title;
@@ -968,19 +983,48 @@ async function showSection(sectionId) {
         // Remove any previous refresh btn appended to the title
         const existingBtn = document.getElementById('titleRefreshBtn');
         if (existingBtn) existingBtn.remove();
+        
+        const existingClearBtn = document.getElementById('titleClearBtn');
+        if (existingClearBtn) existingClearBtn.remove();
 
         const refreshBtn = document.createElement('button');
         refreshBtn.id = 'titleRefreshBtn';
         refreshBtn.title = 'Reload this section';
-        refreshBtn.style.cssText = 'background:none; border:none; color:#94a3b8; cursor:pointer; font-size:0.9rem; margin-left:0.5rem; vertical-align: middle; padding: 0.2rem 0.4rem; border-radius: 6px; transition: color 0.2s;';
+        refreshBtn.className = 'title-refresh-btn';
         refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i>';
-        refreshBtn.onmouseover = () => refreshBtn.style.color = '#667eea';
-        refreshBtn.onmouseout = () => refreshBtn.style.color = '#94a3b8';
         refreshBtn.onclick = function () { showSection(currentSection); };
 
-        if (contentTitle) contentTitle.appendChild(refreshBtn);
+        const clearViewBtn = document.createElement('button');
+        clearViewBtn.id = 'titleClearBtn';
+        clearViewBtn.title = 'Wipe all data from this section permanently';
+        clearViewBtn.className = 'title-refresh-btn';
+        clearViewBtn.style.marginLeft = '8px';
+        clearViewBtn.style.color = '#ef4444';
+        clearViewBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+        clearViewBtn.onclick = async function () { 
+            if (!confirm(`Are you sure you want to PERMANENTLY WIPE ALL DATA from the ${sectionId} section?\n\nThis will delete all records from the database. This action cannot be undone.`)) {
+                return;
+            }
+            try {
+                const resp = await apiCall(`/admin/clear_section/${sectionId}`, { method: 'DELETE' });
+                if (resp && resp.success) {
+                    alert(resp.message);
+                    showSection(currentSection); // reload section
+                } else {
+                    alert(resp.message || 'Failed to wipe section data.');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('An error occurred while wiping data.');
+            }
+        };
+
+        if (contentTitle) {
+            contentTitle.appendChild(refreshBtn);
+            contentTitle.appendChild(clearViewBtn);
+        }
     } catch (err) {
-        console.warn('Could not add refresh button:', err);
+        console.warn('Could not add header buttons:', err);
     }
 
     // Prevent non-admins from accessing user/course management
@@ -1000,7 +1044,8 @@ async function showSection(sectionId) {
 
     try {
         const content = await generateSectionContent(sectionId);
-        contentBody.innerHTML = content;
+        // Wrap every section in a consistent modern layout container
+        contentBody.innerHTML = `<div class="section-wrap">${content}</div>`;
     } catch (error) {
         console.error('Error loading section content:', error);
         contentBody.innerHTML = '<div class="error-message">Failed to load content. Please try again.</div>';
@@ -1013,6 +1058,10 @@ async function generateSectionContent(sectionId) {
             return generateDashboardContent();
         case 'profile':
             return generateProfileContent();
+        case 'timetable-student':
+            return await generateStudentTimetableContent();
+        case 'timetable-admin':
+            return await generateTimetableAdminContent();
         case 'user-management':
             return await generateUserManagementContent();
         case 'assignments-admin':
@@ -1044,10 +1093,315 @@ async function generateSectionContent(sectionId) {
 
         case 'courses-admin':
             return await generateCoursesContent();
+        case 'sessions-admin':
+            return await generateSessionsAdminContent();
 
         default:
             return '<div class="content-card"><h3>Section Coming Soon</h3><p>This section is under development.</p></div>';
     }
+}
+
+// ==================== Academic Sessions (Admin) ====================
+async function generateSessionsAdminContent() {
+    try {
+        const resp = await apiCall('/admin/sessions');
+        const sessions = resp && resp.success ? resp.sessions : [];
+        const rows = sessions.map(s => `
+            <tr>
+                <td>${s.id}</td>
+                <td>${escapeHtml(s.course)}</td>
+                <td>${escapeHtml(s.semester)}</td>
+                <td>${escapeHtml(s.start_date)}</td>
+                <td>${escapeHtml(s.end_date)}</td>
+                <td><span class="badge badge-${s.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(s.status)}</span></td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="deleteSession(${s.id})"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `).join('');
+
+        return \`
+            <div class="content-card">
+                <h3><i class="fas fa-calendar-alt"></i> Academic Sessions Management</h3>
+                <p>Manage the start and end dates of semesters. When a semester ends, the students in it will automatically be promoted to the next semester without hard work.</p>
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>Course</th><th>Semester</th><th>Start Date</th><th>End Date</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>\${rows || '<tr><td colspan="7" style="text-align:center;">No sessions found</td></tr>'}</tbody>
+                </table>
+            </div>
+        \`;
+    } catch (err) {
+        console.error(err);
+        return '<div class="error-message">Failed to load sessions.</div>';
+    }
+}
+
+function showAddSessionModal() {
+    const courses = getCourses();
+    const courseOptions = courses.map(c => \`<option value="\${c}">\${c}</option>\`).join('');
+    const semesterOptions = Array.from({length:8}, (_,i) => \`<option value="\${i+1}">Semester \${i+1}</option>\`).join('');
+    const content = \`
+        <form id="addSessionForm" onsubmit="addSession(event)">
+            <div class="form-group">
+                <label>Course</label>
+                <select id="newSessionCourse" required>
+                    <option value="">Select Course</option>
+                    \${courseOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Semester</label>
+                <select id="newSessionSemester" required>
+                    <option value="">Select Semester</option>
+                    \${semesterOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Start Date</label>
+                <input type="date" id="newSessionStart" required />
+            </div>
+            <div class="form-group">
+                <label>End Date</label>
+                <input type="date" id="newSessionEnd" required />
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Session</button>
+            </div>
+        </form>
+    \`;
+    showModal('Add Academic Session', content);
+}
+
+async function addSession(e) {
+    e.preventDefault();
+    const course = document.getElementById('newSessionCourse').value;
+    const semester = normalizeSemester(document.getElementById('newSessionSemester').value);
+    const start_date = document.getElementById('newSessionStart').value;
+    const end_date = document.getElementById('newSessionEnd').value;
+    
+    if(!course || !semester || !start_date || !end_date) return showNotification('All fields required', 'error');
+    if(new Date(start_date) > new Date(end_date)) return showNotification('Start date cannot be after end date', 'error');
+
+    const resp = await apiCall('/admin/sessions', 'POST', {course, semester, start_date, end_date});
+    if(resp && resp.success) {
+        showNotification('Session created successfully', 'success');
+        closeModal();
+        showSection('sessions-admin');
+    }
+}
+
+async function deleteSession(id) {
+    if(!confirm('Delete this session?')) return;
+    const resp = await apiCall('/admin/sessions/' + id, 'DELETE');
+    if(resp && resp.success) {
+        showNotification('Session deleted', 'success');
+        showSection('sessions-admin');
+    }
+}
+
+// ==================== Timetable (Student/Admin) ====================
+async function generateStudentTimetableContent() {
+    try {
+        const resp = await apiCall(`/student/timetable/${currentUser.id}`);
+        const entries = resp && resp.success ? (resp.timetable || []) : [];
+        if (!entries.length) {
+            return `<div class="content-card"><h3><i class="fas fa-table"></i> Time Table</h3><p>No timetable uploaded for your course/semester yet.</p></div>`;
+        }
+
+        // Build grid structure: time rows x day columns
+        const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+        const dayKeys = ['mon','tue','wed','thu','fri','sat','sun'];
+
+        // collect timeslots sorted
+        const slotKey = (e) => `${e.start_time}-${e.end_time}`;
+        const slots = Array.from(new Set(entries.map(slotKey))).sort();
+
+        // map day+slot -> entry
+        const map = {};
+        for (const e of entries) {
+            const d = (e.day_of_week || '').toLowerCase().slice(0,3);
+            map[`${d}|${slotKey(e)}`] = e;
+        }
+
+        const headerCells = ['Time', ...days].map((d, idx) => `
+            <div class="timetable-cell ${idx===0?'timetable-time-header':'timetable-day-header'}">${d}</div>
+        `).join('');
+
+        const rows = slots.map(slot => {
+            const [start, end] = slot.split('-');
+            const timeCell = `<div class="timetable-cell timetable-time-cell">${escapeHtml(start)} - ${escapeHtml(end)}</div>`;
+            const dayCells = dayKeys.map(dk => {
+                const e = map[`${dk}|${slot}`];
+                if (!e) return `<div class="timetable-cell timetable-empty">—</div>`;
+                const isLunch = (e.subject || '').toLowerCase().includes('lunch');
+                const extraClass = isLunch ? 'timetable-lunch' : '';
+                return `
+                    <div class="timetable-cell ${extraClass}">
+                        <div class="timetable-entry compact">
+                            <div class="subject">${escapeHtml(e.subject || '')}</div>
+                            <div class="room">${escapeHtml(e.room || '')}</div>
+                            <div class="instructor">${escapeHtml(e.instructor || '')}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            return timeCell + dayCells;
+        }).join('');
+
+        return `
+            <div class="content-card">
+                <h3><i class="fas fa-table"></i> Weekly Time Table</h3>
+                <p style="margin-top:-0.5rem;">Course: <b>${escapeHtml(resp.course || currentUser.course || '')}</b> • Semester: <b>${escapeHtml(resp.semester || currentUser.semester || '')}</b></p>
+                <div class="timetable-container">
+                    <div class="timetable-grid">
+                        ${headerCells}
+                        ${rows}
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        console.warn('timetable-student failed', e);
+        return `<div class="content-card"><h3><i class="fas fa-table"></i> Time Table</h3><p>Failed to load timetable.</p></div>`;
+    }
+}
+
+async function generateTimetableAdminContent() {
+    try {
+        await loadCourses();
+        const filters = getAdminFilters ? getAdminFilters() : { course: '', semester: '' };
+        const qs = new URLSearchParams();
+        if (filters.course) qs.set('course', filters.course);
+        if (filters.semester) qs.set('semester', filters.semester);
+        const resp = await apiCall(`/admin/timetable?${qs.toString()}`);
+        const rows = resp && resp.success ? (resp.timetable || []) : [];
+
+        const tableRows = rows.map(r => `
+            <tr>
+                <td>${escapeHtml(r.course || '')}</td>
+                <td>${escapeHtml(r.semester || '')}</td>
+                <td>${escapeHtml(r.day_of_week || '')}</td>
+                <td>${escapeHtml(r.start_time || '')} - ${escapeHtml(r.end_time || '')}</td>
+                <td>${escapeHtml(r.subject || '')}</td>
+                <td>${escapeHtml(r.room || '')}</td>
+                <td>${escapeHtml(r.instructor || '')}</td>
+                <td style="white-space:nowrap;">
+                    <button class="btn btn-warning btn-sm" onclick="showEditTimetableEntryModal(${r.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteTimetableEntry(${r.id})"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `).join('');
+
+        return `
+            <div class="content-card">
+                <h3><i class="fas fa-table"></i> Time Table Entries</h3>
+                <p>Use the filters above to pick Course/Semester. Then add slots.</p>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Course</th><th>Semester</th><th>Day</th><th>Time</th><th>Subject</th><th>Room</th><th>Instructor</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRows || `<tr><td colspan="8" style="text-align:center; color:#64748b;">No timetable entries found.</td></tr>`}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        console.warn('timetable-admin failed', e);
+        return `<div class="content-card"><h3><i class="fas fa-table"></i> Time Table</h3><p>Failed to load timetable.</p></div>`;
+    }
+}
+
+function showAddTimetableEntryModal() {
+    const courseOptions = [''].concat(getCourses ? getCourses() : []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c||'-- Select --')}</option>`).join('');
+    const semOptions = [''].concat(Array.from({length:8},(_,i)=>String(i+1))).map(s => `<option value="${s}">${s?`Semester ${s}`:'-- Select --'}</option>`).join('');
+    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const dayOptions = [''].concat(days).map(d => `<option value="${d}">${d||'-- Select --'}</option>`).join('');
+
+    showModal('Add Timetable Slot', `
+        <form onsubmit="createTimetableEntry(event)">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Course</label>
+                    <select id="ttCourse" required>${courseOptions}</select>
+                </div>
+                <div class="form-group">
+                    <label>Semester</label>
+                    <select id="ttSemester" required>${semOptions}</select>
+                </div>
+                <div class="form-group">
+                    <label>Day</label>
+                    <select id="ttDay" required>${dayOptions}</select>
+                </div>
+                <div class="form-group">
+                    <label>Start Time</label>
+                    <input id="ttStart" type="time" required />
+                </div>
+                <div class="form-group">
+                    <label>End Time</label>
+                    <input id="ttEnd" type="time" required />
+                </div>
+                <div class="form-group">
+                    <label>Subject</label>
+                    <input id="ttSubject" type="text" required placeholder="Mathematics" />
+                </div>
+                <div class="form-group">
+                    <label>Room</label>
+                    <input id="ttRoom" type="text" placeholder="A-101" />
+                </div>
+                <div class="form-group">
+                    <label>Instructor</label>
+                    <input id="ttInstructor" type="text" placeholder="Dr. Rao" />
+                </div>
+            </div>
+            <div class="modal-footer" style="padding:0; border:none; margin-top:1rem;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save</button>
+            </div>
+        </form>
+    `);
+}
+
+async function createTimetableEntry(e) {
+    e.preventDefault();
+    const payload = {
+        course: document.getElementById('ttCourse').value,
+        semester: normalizeSemester(document.getElementById('ttSemester').value),
+        day_of_week: document.getElementById('ttDay').value,
+        start_time: document.getElementById('ttStart').value,
+        end_time: document.getElementById('ttEnd').value,
+        subject: document.getElementById('ttSubject').value.trim(),
+        room: document.getElementById('ttRoom').value.trim(),
+        instructor: document.getElementById('ttInstructor').value.trim()
+    };
+    const resp = await apiCall('/admin/timetable', 'POST', payload);
+    if (resp && resp.success) {
+        showNotification('Timetable slot added', 'success');
+        closeModal();
+        showSection('timetable-admin');
+    } else {
+        showNotification(resp?.message || 'Failed to add slot', 'error');
+    }
+}
+
+async function deleteTimetableEntry(id) {
+    if (!confirm('Delete this timetable slot?')) return;
+    const resp = await apiCall(`/admin/timetable/${id}`, 'DELETE');
+    if (resp && resp.success) {
+        showNotification('Deleted', 'success');
+        showSection('timetable-admin');
+    } else {
+        showNotification(resp?.message || 'Failed to delete', 'error');
+    }
+}
+
+function showEditTimetableEntryModal(id) {
+    showNotification('Edit UI coming next (slot can be deleted + re-added for now).', 'info');
 }
 
 function generateDashboardContent() {
@@ -1057,27 +1411,62 @@ function generateDashboardContent() {
     } else {
         const isAdmin = currentUserType === 'admin';
         return `
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem;">
+            <div class="dash-grid">
                 ${isAdmin ? `
-                <div class="content-card">
-                    <h3><i class="fas fa-users"></i> User Management</h3>
-                    <p>Add, edit, and manage student and staff accounts.</p>
-                    <a href="#" onclick="showSection('user-management')" class="btn btn-primary" style="text-decoration: none;">Manage Users</a>
-                </div>
+                <section class="dash-card">
+                    <div class="dash-card-top">
+                        <div class="dash-icon"><i class="fas fa-users-cog"></i></div>
+                        <div>
+                            <h3>User Management</h3>
+                            <p>Add, edit, and manage student and staff accounts with bulk upload, roles, and quick actions.</p>
+                        </div>
+                    </div>
+                    <div class="dash-actions">
+                        <button type="button" class="btn btn-primary" onclick="showSection('user-management')">
+                            <i class="fas fa-arrow-right"></i> Manage users
+                        </button>
+                    </div>
+                </section>
                 ` : ''}
-                <div class="content-card">
-                    <h3><i class="fas fa-chart-bar"></i> Academic Data</h3>
-                    <p>Manage attendance, marks, assignments, and more.</p>
-                    <a href="#" onclick="showSection('marks-admin')" class="btn btn-secondary" style="text-decoration: none;">Manage Data</a>
-                </div>
+
+                <section class="dash-card">
+                    <div class="dash-card-top">
+                        <div class="dash-icon academic"><i class="fas fa-layer-group"></i></div>
+                        <div>
+                            <h3>Academic Data</h3>
+                            <p>Manage attendance, marks, assignments, announcements, materials, and exams in one place.</p>
+                        </div>
+                    </div>
+                    <div class="dash-actions">
+                        <button type="button" class="btn btn-secondary" onclick="showSection('marks-admin')">
+                            <i class="fas fa-arrow-right"></i> Manage data
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="showSection('attendance-admin')">
+                            <i class="fas fa-calendar-check"></i> Attendance
+                        </button>
+                    </div>
+                </section>
+
+                ${isAdmin ? `
+                <section class="dash-card wide">
+                    <div class="dash-card-top">
+                        <div class="dash-icon course"><i class="fas fa-book"></i></div>
+                        <div>
+                            <h3>Course Manager</h3>
+                            <p>Add, rename, or delete courses. Keep everything organized across semesters.</p>
+                        </div>
+                    </div>
+                    <div class="dash-actions">
+                        <button type="button" class="btn btn-success" onclick="showCourseManager()">
+                            <i class="fas fa-wand-magic-sparkles"></i> Open course manager
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="showSection('courses-admin')">
+                            <i class="fas fa-list"></i> View courses
+                        </button>
+                    </div>
+                </section>
+                ` : ''}
             </div>
-            ${isAdmin ? `
-            <div class="content-card">
-                <h3><i class="fas fa-book"></i> Course Manager</h3>
-                <p>Add, rename, or delete courses for students.</p>
-                <a href="#" onclick="showCourseManager()" class="btn btn-success" style="text-decoration: none;">Open Course Manager</a>
-            </div>
-            ` : ''}
         `;
     }
 }

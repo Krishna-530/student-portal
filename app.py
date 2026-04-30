@@ -10,6 +10,7 @@ import os
 import pandas as pd
 from werkzeug.utils import secure_filename
 from flask import url_for
+import re
 
 
 
@@ -350,6 +351,9 @@ def get_db_connection():
             cursorclass=DictCursor,
             charset="utf8mb4",
             autocommit=False,
+            connect_timeout=5,
+            read_timeout=10,
+            write_timeout=10,
             auth_plugin_map={"caching_sha2_password": "mysql_native_password"},
         )
         with conn.cursor() as cur:
@@ -511,6 +515,20 @@ def init_database():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ''')
 
+        # ---- Academic Sessions ----
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS academic_sessions (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                course VARCHAR(255) NOT NULL,
+                semester VARCHAR(100) NOT NULL,
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                status VARCHAR(50) DEFAULT 'active',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
+
         # ---- Exams ----
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS exams (
@@ -526,6 +544,73 @@ def init_database():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ''')
+
+        # ---- Timetable ----
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS timetable (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                course VARCHAR(255) DEFAULT NULL,
+                semester VARCHAR(100) DEFAULT NULL,
+                day_of_week VARCHAR(20) NOT NULL,
+                start_time TIME NOT NULL,
+                end_time TIME NOT NULL,
+                subject VARCHAR(255) NOT NULL,
+                room VARCHAR(100) DEFAULT NULL,
+                instructor VARCHAR(255) DEFAULT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_course_sem (course, semester),
+                INDEX idx_day_time (day_of_week, start_time, end_time)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ''')
+
+        # ---- Migration: timetable schema drift (older DBs) ----
+        # If the table already existed with different column names, CREATE TABLE IF NOT EXISTS won't fix it.
+        # We add missing expected columns so the API/UI can work without destroying existing data.
+        try:
+            cursor.execute("SHOW COLUMNS FROM timetable")
+            tt_cols = {str(r.get("Field")).lower(): r for r in (cursor.fetchall() or [])}
+
+            def _add_col_if_missing(col_name: str, col_sql: str):
+                if col_name.lower() in tt_cols:
+                    return
+                try:
+                    cursor.execute(f"ALTER TABLE timetable ADD COLUMN {col_sql}")
+                    conn.commit()
+                    # refresh cached column list
+                    cursor.execute("SHOW COLUMNS FROM timetable")
+                    refreshed = cursor.fetchall() or []
+                    tt_cols.clear()
+                    tt_cols.update({str(r.get("Field")).lower(): r for r in refreshed})
+                except Exception:
+                    pass
+
+            # Ensure core fields exist (keep NULL-able to avoid failing on existing rows)
+            _add_col_if_missing("course", "course VARCHAR(255) DEFAULT NULL")
+            _add_col_if_missing("semester", "semester VARCHAR(100) DEFAULT NULL")
+            _add_col_if_missing("day_of_week", "day_of_week VARCHAR(20) DEFAULT NULL")
+            _add_col_if_missing("start_time", "start_time TIME DEFAULT NULL")
+            _add_col_if_missing("end_time", "end_time TIME DEFAULT NULL")
+            _add_col_if_missing("subject", "subject VARCHAR(255) DEFAULT NULL")
+            _add_col_if_missing("room", "room VARCHAR(100) DEFAULT NULL")
+            _add_col_if_missing("instructor", "instructor VARCHAR(255) DEFAULT NULL")
+            _add_col_if_missing("created_at", "created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+            _add_col_if_missing("updated_at", "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+
+            # Best-effort indices (ignore if they already exist / unsupported)
+            try:
+                cursor.execute("CREATE INDEX idx_course_sem ON timetable (course, semester)")
+                conn.commit()
+            except Exception:
+                pass
+            try:
+                cursor.execute("CREATE INDEX idx_day_time ON timetable (day_of_week, start_time, end_time)")
+                conn.commit()
+            except Exception:
+                pass
+        except Exception:
+            # If SHOW COLUMNS fails (no permissions etc.), we can't auto-migrate here.
+            pass
 
 
         # ---- Migration: Add missing columns if they don't exist ----
@@ -627,6 +712,46 @@ def init_database():
 @app.route("/")
 def serve_index():
     return render_template("index.html")
+
+def get_next_semester(sem_str):
+    if not sem_str: return sem_str
+    match = re.search(r'\d+', sem_str)
+    if match:
+        num = int(match.group())
+        next_num = num + 1
+        def get_suffix(n):
+            if 11 <= (n % 100) <= 13: return 'th'
+            return {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+        
+        old_str = f"{num}{get_suffix(num)}"
+        new_str = f"{next_num}{get_suffix(next_num)}"
+        if old_str.lower() in sem_str.lower():
+            return re.sub(old_str, new_str, sem_str, flags=re.IGNORECASE)
+        else:
+            return sem_str.replace(str(num), str(next_num))
+    return sem_str
+
+@app.before_request
+def auto_promote_students():
+    # Only run once per some requests, or just fast check
+    if request.path.startswith('/api/') and request.method in ['GET', 'POST']:
+        try:
+            conn = get_db_connection()
+            if not conn: return
+            cur = conn.cursor()
+            # Find active sessions that have ended
+            cur.execute("SELECT id, course, semester FROM academic_sessions WHERE end_date < CURDATE() AND status = 'active'")
+            ended_sessions = cur.fetchall()
+            for session in ended_sessions:
+                next_sem = get_next_semester(session['semester'])
+                # Update users in that course and semester
+                cur.execute("UPDATE users SET semester = %s WHERE course = %s AND semester = %s", (next_sem, session['course'], session['semester']))
+                # Mark session as completed
+                cur.execute("UPDATE academic_sessions SET status = 'completed' WHERE id = %s", (session['id'],))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Auto-promote error: {e}")
 
 # ----------------------------
 # Authentication Routes
@@ -799,6 +924,45 @@ def get_student_exams():
         return jsonify({"success": True, "exams": [dict(r) for r in rows]})
     except Exception as e:
         logger.error(f"Get student exams error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+
+@app.route("/api/student/timetable/<int:student_id>", methods=["GET"])
+def get_student_timetable(student_id):
+    """Return timetable rows for the student's course/semester."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"success": False, "message": "Database connection failed"}), 500
+        cur = conn.cursor()
+        cur.execute("SELECT course, semester FROM users WHERE id=%s", (student_id,))
+        u = cur.fetchone() or {}
+        course = u.get("course")
+        semester = u.get("semester")
+
+        # If we don't have course/semester, return empty.
+        if not course or not semester:
+            conn.close()
+            return jsonify({"success": True, "course": course, "semester": semester, "timetable": []})
+
+        cur.execute(
+            """
+            SELECT id, course, semester, day_of_week, 
+                   DATE_FORMAT(start_time, '%%H:%%i') as start_time,
+                   DATE_FORMAT(end_time, '%%H:%%i') as end_time,
+                   subject, room, instructor
+            FROM timetable
+            WHERE LOWER(course)=LOWER(%s) AND LOWER(semester)=LOWER(%s)
+            ORDER BY FIELD(LOWER(day_of_week), 'monday','tuesday','wednesday','thursday','friday','saturday','sunday'),
+                     start_time ASC
+            """,
+            (course, semester),
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return jsonify({"success": True, "course": course, "semester": semester, "timetable": [dict(r) for r in rows]})
+    except Exception as e:
+        logger.error(f"Get student timetable error: {e}")
         return jsonify({"success": False, "message": "Internal server error"}), 500
 
 
@@ -1039,6 +1203,100 @@ def get_announcements():
         return jsonify({"success": True, "announcements": [dict(r) for r in rows]})
     except Exception as e:
         logger.error(f"Get announcements error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+
+@app.route("/api/admin/timetable", methods=["GET"])
+def admin_get_timetable():
+    try:
+        course = request.args.get("course")
+        semester = request.args.get("semester")
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"success": False, "message": "Database connection failed"}), 500
+        cur = conn.cursor()
+
+        sql = """
+            SELECT id, course, semester, day_of_week,
+                   DATE_FORMAT(start_time, '%%H:%%i') as start_time,
+                   DATE_FORMAT(end_time, '%%H:%%i') as end_time,
+                   subject, room, instructor, created_at
+            FROM timetable
+            WHERE 1=1
+        """
+        params = []
+        if course:
+            sql += " AND LOWER(course)=LOWER(%s) "
+            params.append(course)
+        if semester:
+            sql += " AND (LOWER(semester)=LOWER(%s) OR semester=%s) "
+            params.append(semester)
+            params.append(semester)
+
+        sql += """
+            ORDER BY course, semester,
+                     FIELD(LOWER(day_of_week), 'monday','tuesday','wednesday','thursday','friday','saturday','sunday'),
+                     start_time ASC
+        """
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+        return jsonify({"success": True, "timetable": [dict(r) for r in rows]})
+    except Exception as e:
+        logger.error(f"admin_get_timetable error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+
+@app.route("/api/admin/timetable", methods=["POST"])
+def admin_add_timetable():
+    try:
+        data = request.get_json() or {}
+        course = data.get("course")
+        semester = data.get("semester")
+        day_of_week = data.get("day_of_week")
+        start_time = data.get("start_time")
+        end_time = data.get("end_time")
+        subject = data.get("subject")
+        room = data.get("room")
+        instructor = data.get("instructor")
+
+        if not (day_of_week and start_time and end_time and subject):
+            return jsonify({"success": False, "message": "day_of_week, start_time, end_time, subject are required"}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"success": False, "message": "Database connection failed"}), 500
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO timetable (course, semester, day_of_week, start_time, end_time, subject, room, instructor)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (course, semester, day_of_week, start_time, end_time, subject, room, instructor),
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+        conn.close()
+        return jsonify({"success": True, "message": "Timetable slot added", "id": new_id})
+    except Exception as e:
+        logger.error(f"admin_add_timetable error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+
+@app.route("/api/admin/timetable/<int:tid>", methods=["DELETE"])
+def admin_delete_timetable(tid):
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"success": False, "message": "Database connection failed"}), 500
+        cur = conn.cursor()
+        cur.execute("DELETE FROM timetable WHERE id=%s", (tid,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Timetable slot deleted"})
+    except Exception as e:
+        logger.error(f"admin_delete_timetable error: {e}")
         return jsonify({"success": False, "message": "Internal server error"}), 500
     
     
@@ -1608,6 +1866,37 @@ def debug_assignments_with_files():
         return jsonify({"success": False, "message": "Internal server error"}), 500
 
 
+@app.route('/api/debug/schema/<string:table_name>', methods=['GET'])
+def debug_table_schema(table_name):
+    """Debug helper: inspect current DB schema for a table."""
+    try:
+        # Basic allowlist: only simple identifiers
+        if not table_name or not table_name.replace('_', '').isalnum():
+            return jsonify({"success": False, "message": "Invalid table name"}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"success": False, "message": "DB connection failed"}), 500
+        cur = conn.cursor()
+        cur.execute("SHOW TABLES")
+        tables = []
+        for r in (cur.fetchall() or []):
+            # MySQL returns dict with key like "Tables_in_<db>"
+            for v in r.values():
+                tables.append(v)
+        if table_name not in tables:
+            conn.close()
+            return jsonify({"success": False, "message": f"Table '{table_name}' not found", "tables": tables}), 404
+
+        cur.execute(f"SHOW COLUMNS FROM `{table_name}`")
+        cols = cur.fetchall() or []
+        conn.close()
+        return jsonify({"success": True, "table": table_name, "columns": cols})
+    except Exception as e:
+        logger.error(f"debug_table_schema error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+
 @app.route('/api/admin/courses', methods=['POST'])
 def create_course():
     try:
@@ -1918,12 +2207,108 @@ def unread_announcements_count():
         return jsonify({"success": False, "message": "Internal server error"}), 500
 
 
+@app.route('/api/admin/clear_section/<string:section>', methods=['DELETE'])
+def clear_section(section):
+    """Deletes all records from the corresponding table for a section."""
+    try:
+        # Map frontend section names to DB table names
+        section_to_table = {
+            'user-management': 'users',
+            'courses-admin': 'courses',
+            'timetable-admin': 'timetable',
+            'announcements-admin': 'announcements',
+            'study-materials-admin': 'study_materials',
+            'assignments-admin': 'assignments',
+            'exams-admin': 'exams',
+            'marks-admin': 'marks',
+            'attendance-admin': 'attendance'
+        }
+        
+        table_name = section_to_table.get(section)
+        if not table_name:
+            return jsonify({"success": False, "message": "Invalid section or clearing not supported"}), 400
+            
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"success": False, "message": "Database connection failed"}), 500
+            
+        cursor = conn.cursor()
+        
+        # Don't delete admin users if it's the users table
+        if table_name == 'users':
+            cursor.execute("DELETE FROM users WHERE user_type != 'admin'")
+        else:
+            cursor.execute(f"TRUNCATE TABLE {table_name}")
+            
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": True, "message": f"Successfully wiped all data from {section}"})
+    except Exception as e:
+        logger.error(f"Clear section error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+@app.route('/api/admin/sessions', methods=['GET'])
+def get_sessions():
+    try:
+        conn = get_db_connection()
+        if not conn: return jsonify({"success": False, "message": "Database error"}), 500
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM academic_sessions ORDER BY start_date DESC")
+        sessions = cur.fetchall()
+        conn.close()
+        return jsonify({"success": True, "sessions": sessions})
+    except Exception as e:
+        logger.error(f"Get sessions error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+@app.route('/api/admin/sessions', methods=['POST'])
+def add_session():
+    try:
+        data = request.json
+        course = data.get('course')
+        semester = data.get('semester')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        if not all([course, semester, start_date, end_date]):
+            return jsonify({"success": False, "message": "All fields are required"}), 400
+        
+        conn = get_db_connection()
+        if not conn: return jsonify({"success": False, "message": "Database error"}), 500
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO academic_sessions (course, semester, start_date, end_date, status)
+            VALUES (%s, %s, %s, %s, 'active')
+        """, (course, semester, start_date, end_date))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Session created successfully"})
+    except Exception as e:
+        logger.error(f"Add session error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+@app.route('/api/admin/sessions/<int:session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    try:
+        conn = get_db_connection()
+        if not conn: return jsonify({"success": False, "message": "Database error"}), 500
+        cur = conn.cursor()
+        cur.execute("DELETE FROM academic_sessions WHERE id = %s", (session_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Session deleted successfully"})
+    except Exception as e:
+        logger.error(f"Delete session error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+
 # ----------------------------
 # Main Entry
 # ----------------------------
 if __name__ == "__main__":
     if init_database():
         logger.info("Starting Flask app...")
-        app.run(debug=True, host="0.0.0.0", port=5000)
+        # Disable auto-reloader to avoid duplicate server processes binding the same port on Windows.
+        # threaded=True allows concurrent requests so a slow DB call won't freeze all other pages.
+        app.run(debug=True, use_reloader=False, host="0.0.0.0", port=5000, threaded=True)
     else:
         logger.error("Failed to initialize database.")

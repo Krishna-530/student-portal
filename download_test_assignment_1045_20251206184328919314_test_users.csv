@@ -1,4 +1,0 @@
-username,password,name,email,user_type,roll_number,course,semester
-teststudent1,testpass123,Test Student 1,test1@example.com,student,TEST001,Computer Science,6th Semester
-teststudent2,testpass123,Test Student 2,test2@example.com,student,TEST002,Computer Science,6th Semester
-testadmin,testpass123,Test Admin,testadmin@example.com,admin,,,
