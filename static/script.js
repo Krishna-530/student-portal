@@ -1120,16 +1120,16 @@ async function generateSessionsAdminContent() {
             </tr>
         `).join('');
 
-        return \`
+        return `
             <div class="content-card">
                 <h3><i class="fas fa-calendar-alt"></i> Academic Sessions Management</h3>
                 <p>Manage the start and end dates of semesters. When a semester ends, the students in it will automatically be promoted to the next semester without hard work.</p>
                 <table class="data-table">
                     <thead><tr><th>ID</th><th>Course</th><th>Semester</th><th>Start Date</th><th>End Date</th><th>Status</th><th>Actions</th></tr></thead>
-                    <tbody>\${rows || '<tr><td colspan="7" style="text-align:center;">No sessions found</td></tr>'}</tbody>
+                    <tbody>${rows || '<tr><td colspan="7" style="text-align:center;">No sessions found</td></tr>'}</tbody>
                 </table>
             </div>
-        \`;
+        `;
     } catch (err) {
         console.error(err);
         return '<div class="error-message">Failed to load sessions.</div>';
@@ -1138,22 +1138,22 @@ async function generateSessionsAdminContent() {
 
 function showAddSessionModal() {
     const courses = getCourses();
-    const courseOptions = courses.map(c => \`<option value="\${c}">\${c}</option>\`).join('');
-    const semesterOptions = Array.from({length:8}, (_,i) => \`<option value="\${i+1}">Semester \${i+1}</option>\`).join('');
-    const content = \`
+    const courseOptions = courses.map(c => `<option value="${c}">${c}</option>`).join('');
+    const semesterOptions = Array.from({length:8}, (_,i) => `<option value="${i+1}">Semester ${i+1}</option>`).join('');
+    const content = `
         <form id="addSessionForm" onsubmit="addSession(event)">
             <div class="form-group">
                 <label>Course</label>
                 <select id="newSessionCourse" required>
                     <option value="">Select Course</option>
-                    \${courseOptions}
+                    ${courseOptions}
                 </select>
             </div>
             <div class="form-group">
                 <label>Semester</label>
                 <select id="newSessionSemester" required>
                     <option value="">Select Semester</option>
-                    \${semesterOptions}
+                    ${semesterOptions}
                 </select>
             </div>
             <div class="form-group">
@@ -1169,7 +1169,7 @@ function showAddSessionModal() {
                 <button type="submit" class="btn btn-primary">Add Session</button>
             </div>
         </form>
-    \`;
+    `;
     showModal('Add Academic Session', content);
 }
 

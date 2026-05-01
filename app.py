@@ -334,7 +334,7 @@ def download_assignment(id):
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_PORT = int(os.environ.get("DB_PORT", 3306))
 DB_USER = os.environ.get("DB_USER", "root")
-DB_PASSWORD = os.environ.get("DB_PASSWORD", "Your_password")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "Pardhu_530")
 DB_NAME = os.environ.get("DB_NAME", "student_portal")
 
 # ----------------------------
